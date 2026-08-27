@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tic-Tac-Toe Prototype</title>
+<style>
+  /* =========================================================
+     DESIGN TOKENS
+     A small, consistent palette and type scale used everywhere.
+     ========================================================= */
+  :root {
+    --bg-deep: #0f172a;      /* page background - deep slate navy */
+    --bg-panel: #16213e;     /* card / panel background */
+    --bg-panel-light: #1e2a4a; /* input backgrounds, cell backgrounds */
+    --border-soft: #2c3a63;  /* subtle borders */
+    --text-primary: #eef1f8; /* main text, near-white */
+    --text-muted: #93a0c2;   /* secondary text */
+    --accent-x: #4fd1c5;     /* teal accent - Player (X) */
+    --accent-o: #f6ad55;     /* warm amber accent - Computer (O) */
+    --accent-danger: #f56565;/* error red */
+    --accent-success: #68d391; /* win green */
+    --radius: 14px;
+    --font-display: "Segoe UI", "Trebuchet MS", sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: radial-gradient(circle at top, #16213e 0%, var(--bg-deep) 65%);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+  }
+
+  /* Center everything on the page, on any screen size */
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  /* =========================================================
+     SHARED PANEL / CARD STYLE
+     ========================================================= */
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 32px 28px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-x);
+    margin: 0 0 6px 0;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: 26px;
+    margin: 0 0 4px 0;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 0 0 28px 0;
+  }
+
+  /* =========================================================
+     SIGN-IN FORM
+     ========================================================= */
+  .field {
+    margin-bottom: 18px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .field input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .field input:focus {
+    border-color: var(--accent-x);
+    box-shadow: 0 0 0 3px rgba(79, 209, 197, 0.18);
+  }
+
+  .btn {
+    width: 100%;
+    padding: 13px 16px;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.08s ease, filter 0.15s ease;
+  }
+
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent-x), #3fb8ac);
+    color: #06201d;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    color: var(--text-primary);
+  }
+
+  .hint {
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(79, 209, 197, 0.08);
+    border: 1px dashed var(--border-soft);
+    border-radius: 10px;
+    padding: 10px 12px;
+    line-height: 1.5;
+  }
+
+  .error-message {
+    display: none;
+    background: rgba(245, 101, 101, 0.12);
+    border: 1px solid rgba(245, 101, 101, 0.4);
+    color: #feb2b2;
+    font-size: 13.5px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+  }
+
+  .error-message.visible { display: block; }
+
+  /* =========================================================
+     GAME SCREEN
+     ========================================================= */
+  .game-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 22px;
+  }
+
+  .user-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+
+  .user-chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-success);
+    box-shadow: 0 0 8px var(--accent-success);
+  }
+
+  .signout-link {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .signout-link:hover { color: var(--text-primary); }
+
+  .status-banner {
+    text-align: center;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border-soft);
+    margin-bottom: 20px;
+    min-height: 20px;
+  }
+
+  .status-banner.win { color: var(--accent-success); border-color: var(--accent-success); }
+  .status-banner.lose { color: var(--accent-danger); border-color: var(--accent-danger); }
+  .status-banner.draw { color: var(--accent-o); border-color: var(--accent-o); }
+
+  /* The 3x3 board */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .cell {
+    aspect-ratio: 1 / 1;
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(32px, 10vw, 48px);
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: background 0.15s ease, transform 0.08s ease, border-color 0.15s ease;
+    user-select: none;
+  }
+
+  .cell:hover:not(.taken):not(.disabled) {
+    background: #263867;
+    border-color: var(--accent-x);
+    transform: translateY(-2px);
+  }
+
+  .cell:active:not(.taken):not(.disabled) { transform: scale(0.96); }
+
+  .cell.taken, .cell.disabled { cursor: default; }
+
+  .cell.mark-x { color: var(--accent-x); }
+  .cell.mark-o { color: var(--accent-o); }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+  }
+
+  .controls .btn { flex: 1; }
+
+  .hidden { display: none !important; }
+
+  @media (max-width: 380px) {
+    .panel { padding: 24px 18px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- =========================================================
+         SCREEN 1: SIGN-IN
+         Shown first. On successful demo login we hide this and
+         show the game screen instead.
+         ========================================================= -->
+    <div id="signin-screen" class="panel">
+      <p class="eyebrow">Prototype</p>
+      <h1>Sign in to play</h1>
+      <p class="subtitle">Tic-Tac-Toe — testing build</p>
+
+      <div id="login-error" class="error-message">
+        Incorrect username or password. Please try again.
+      </div>
+
+      <form id="signin-form">
+        <div class="field">
+          <label for="username">Username or email</label>
+          <input type="text" id="username" autocomplete="username" placeholder="demo" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" autocomplete="current-password" placeholder="••••" />
+        </div>
+        <button type="submit" class="btn btn-primary">Sign In</button>
+      </form>
+
+      <div class="hint">
+        Demo credentials — username: <strong>demo</strong>, password: <strong>demo</strong>.
+        This is a prototype only: there is no real account system behind it.
+      </div>
+    </div>
+
+    <!-- =========================================================
+         SCREEN 2: GAME
+         Hidden until the user signs in successfully.
+         ========================================================= -->
+    <div id="game-screen" class="panel hidden">
+      <div class="game-header">
+        <div class="user-chip">
+          <span class="dot"></span>
+          <span>Signed in as <strong id="display-username">demo</strong></span>
+        </div>
+        <button id="signout-btn" class="signout-link">Sign out</button>
+      </div>
+
+      <h1>Tic-Tac-Toe</h1>
+      <p class="subtitle">You are <strong style="color: var(--accent-x)">X</strong> · Computer is <strong style="color: var(--accent-o)">O</strong></p>
+
+      <div id="status-banner" class="status-banner">Your move — pick a square.</div>
+
+      <div id="board" class="board">
+        <!-- 9 cells, generated by JavaScript below -->
+      </div>
+
+      <div class="controls">
+        <button id="new-game-btn" class="btn btn-secondary">New Game</button>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+/* =====================================================================
+   SECURITY NOTE (READ ME):
+   This "authentication" is entirely client-side JavaScript and is only
+   meant for a quick, throwaway prototype / demo. The username and
+   password below are stored in plain text in this file, visible to
+   anyone who views the page source. NEVER do this in a real
+   application. A production app must verify credentials on a server,
+   store passwords using a strong hash (e.g. bcrypt/argon2), use HTTPS,
+   and issue a proper session token or use an established auth
+   provider (OAuth, etc).
+   ===================================================================== */
+
+// ---- DEMO CREDENTIALS -------------------------------------------------
+// Change these two values to update the demo login for this prototype.
+const DEMO_USERNAME = "demo";
+const DEMO_PASSWORD = "demo";
+
+// Tracks who is currently signed in (null = nobody signed in yet)
+let currentUser = null;
+
+// ---- ELEMENT REFERENCES ----------------------------------------------
+const signinScreen   = document.getElementById("signin-screen");
+const gameScreen     = document.getElementById("game-screen");
+const signinForm     = document.getElementById("signin-form");
+const usernameInput  = document.getElementById("username");
+const passwordInput  = document.getElementById("password");
+const loginError     = document.getElementById("login-error");
+const displayUsername = document.getElementById("display-username");
+const signoutBtn     = document.getElementById("signout-btn");
+const newGameBtn     = document.getElementById("new-game-btn");
+const boardEl        = document.getElementById("board");
+const statusBanner   = document.getElementById("status-banner");
+
+/* =====================================================================
+   SIGN-IN LOGIC
+   ===================================================================== */
+signinForm.addEventListener("submit", function (event) {
+  event.preventDefault(); // stop the page from reloading on submit
+
+  const enteredUsername = usernameInput.value.trim();
+  const enteredPassword = passwordInput.value;
+
+  // Compare against the hard-coded demo credentials.
+  if (enteredUsername === DEMO_USERNAME && enteredPassword === DEMO_PASSWORD) {
+    currentUser = enteredUsername;
+    loginError.classList.remove("visible");
+    showGameScreen();
+  } else {
+    // Wrong credentials: show the error message, keep the user on sign-in.
+    loginError.classList.add("visible");
+  }
+});
+
+function showGameScreen() {
+  signinScreen.classList.add("hidden");
+  gameScreen.classList.remove("hidden");
+  displayUsername.textContent = currentUser;
+  resetGame(); // start with a fresh board every time we enter the game
+}
+
+function showSigninScreen() {
+  gameScreen.classList.add("hidden");
+  signinScreen.classList.remove("hidden");
+  // Clear the form fields and any previous error so it's a clean slate
+  usernameInput.value = "";
+  passwordInput.value = "";
+  loginError.classList.remove("visible");
+}
+
+signoutBtn.addEventListener("click", function () {
+  currentUser = null;
+  showSigninScreen();
+});
+
+/* =====================================================================
+   TIC-TAC-TOE GAME LOGIC
+   ===================================================================== */
+
+// The board is represented as an array of 9 values: "X", "O", or "" (empty).
+// Index layout:
+//   0 | 1 | 2
+//   3 | 4 | 5
+//   6 | 7 | 8
+let board = ["", "", "", "", "", "", "", "", ""];
+let gameOver = false;
+
+const HUMAN = "X";
+const COMPUTER = "O";
+
+// All possible ways to win: rows, columns, and diagonals.
+const WIN_LINES = [
+  [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+  [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+  [0, 4, 8], [2, 4, 6]             // diagonals
+];
+
+// Build the 9 clickable cell elements once.
+function buildBoard() {
+  boardEl.innerHTML = "";
+  for (let i = 0; i < 9; i++) {
+    const cell = document.createElement("div");
+    cell.classList.add("cell");
+    cell.dataset.index = i;
+    cell.addEventListener("click", onCellClick);
+    boardEl.appendChild(cell);
+  }
+}
+
+// Redraw the board's visuals to match the `board` array's current state.
+function renderBoard() {
+  const cells = boardEl.querySelectorAll(".cell");
+  cells.forEach(function (cell) {
+    const i = Number(cell.dataset.index);
+    const value = board[i];
+    cell.textContent = value;
+    cell.classList.remove("mark-x", "mark-o", "taken");
+    if (value === "X") cell.classList.add("mark-x", "taken");
+    if (value === "O") cell.classList.add("mark-o", "taken");
+    cell.classList.toggle("disabled", gameOver);
+  });
+}
+
+// Handles a player clicking a square.
+function onCellClick(event) {
+  const index = Number(event.currentTarget.dataset.index);
+
+  // Ignore clicks on filled squares or after the game has ended.
+  if (board[index] !== "" || gameOver) return;
+
+  // Player places X
+  board[index] = HUMAN;
+  renderBoard();
+
+  // Check if that move ended the game before letting the computer play.
+  if (checkGameEnd()) return;
+
+  // Computer takes its turn after a short pause, so moves feel natural.
+  statusBanner.textContent = "Computer is thinking...";
+  setTimeout(computerMove, 400);
+}
+
+// Picks a square for the computer and plays it.
+function computerMove() {
+  if (gameOver) return;
+
+  const move = pickComputerMove();
+  if (move === -1) return; // no moves left (shouldn't happen if called correctly)
+
+  board[move] = COMPUTER;
+  renderBoard();
+  checkGameEnd();
+}
+
+// Simple computer strategy, in priority order:
+//  1. Win immediately if possible.
+//  2. Block the player if they're about to win.
+//  3. Take the center if it's open.
+//  4. Otherwise take a random open square.
+function pickComputerMove() {
+  const winningMove = findWinningMove(COMPUTER);
+  if (winningMove !== -1) return winningMove;
+
+  const blockingMove = findWinningMove(HUMAN);
+  if (blockingMove !== -1) return blockingMove;
+
+  if (board[4] === "") return 4;
+
+  const openSquares = board
+    .map(function (value, index) { return value === "" ? index : -1; })
+    .filter(function (index) { return index !== -1; });
+
+  if (openSquares.length === 0) return -1;
+  const randomIndex = Math.floor(Math.random() * openSquares.length);
+  return openSquares[randomIndex];
+}
+
+// Returns the index of a square that would let `player` complete a line
+// right now, or -1 if no such square exists.
+function findWinningMove(player) {
+  for (const line of WIN_LINES) {
+    const [a, b, c] = line;
+    const values = [board[a], board[b], board[c]];
+    const playerCount = values.filter(function (v) { return v === player; }).length;
+    const emptyCount = values.filter(function (v) { return v === ""; }).length;
+
+    if (playerCount === 2 && emptyCount === 1) {
+      // Find which of the three squares is the empty one.
+      if (board[a] === "") return a;
+      if (board[b] === "") return b;
+      if (board[c] === "") return c;
+    }
+  }
+  return -1;
+}
+
+// Checks for a win or draw after a move. Updates the status banner and
+// returns true if the game has ended, so callers know to stop.
+function checkGameEnd() {
+  const winner = getWinner();
+
+  if (winner === HUMAN) {
+    gameOver = true;
+    statusBanner.textContent = "You win! 🎉";
+    statusBanner.className = "status-banner win";
+    renderBoard();
+    return true;
+  }
+
+  if (winner === COMPUTER) {
+    gameOver = true;
+    statusBanner.textContent = "Computer wins. Try again!";
+    statusBanner.className = "status-banner lose";
+    renderBoard();
+    return true;
+  }
+
+  if (board.every(function (value) { return value !== ""; })) {
+    gameOver = true;
+    statusBanner.textContent = "It's a draw.";
+    statusBanner.className = "status-banner draw";
+    renderBoard();
+    return true;
+  }
+
+  // Game continues.
+  statusBanner.textContent = "Your move — pick a square.";
+  statusBanner.className = "status-banner";
+  return false;
+}
+
+// Returns "X" or "O" if that player has completed a line, otherwise null.
+function getWinner() {
+  for (const [a, b, c] of WIN_LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return board[a];
+    }
+  }
+  return null;
+}
+
+// Resets the board array and visuals for a brand new game.
+function resetGame() {
+  board = ["", "", "", "", "", "", "", "", ""];
+  gameOver = false;
+  statusBanner.textContent = "Your move — pick a square.";
+  statusBanner.className = "status-banner";
+  buildBoard();
+  renderBoard();
+}
+
+newGameBtn.addEventListener("click", resetGame);
+
+// Build the board once on page load (it stays hidden until sign-in).
+buildBoard();
+</script>
+
+</body>
+</html>
