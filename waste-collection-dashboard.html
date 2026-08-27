@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Waste Collection Operations Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/lucide-react@0.468.0/dist/umd/lucide-react.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo } = React;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot } = Recharts;
+const { AlertTriangle, CheckCircle2, Clock, Search, ChevronDown, ChevronRight, Fuel, Gauge, X, Phone, RotateCcw, CalendarClock, Users, Radio, TrendingUp, TrendingDown, Minus, Trophy, Scale, Repeat, PackageCheck, Flame, Leaf } = lucideReact;
+
+// ---------- Mock data ----------
+const ZONES = ["North Ridge", "Elm District", "Harbor Flats", "Cedar Grove", "Southgate"];
+
+const INITIAL_ROUTES = [
+  { id: "R-104", zone: "North Ridge", driver: "D. Okafor", truck: "TRK-07", status: "in-progress", stopsTotal: 142, stopsDone: 96, start: "06:00", eta: "11:20" },
+  { id: "R-118", zone: "Elm District", driver: "M. Cabrera", truck: "TRK-12", status: "in-progress", stopsTotal: 168, stopsDone: 40, start: "06:15", eta: "12:45" },
+  { id: "R-092", zone: "Harbor Flats", driver: "S. Whitfield", truck: "TRK-03", status: "delayed", stopsTotal: 120, stopsDone: 55, start: "06:00", eta: "13:10" },
+  { id: "R-131", zone: "Cedar Grove", driver: "J. Park", truck: "TRK-19", status: "completed", stopsTotal: 155, stopsDone: 155, start: "05:45", eta: "10:50" },
+  { id: "R-146", zone: "Southgate", driver: "A. Novak", truck: "TRK-22", status: "scheduled", stopsTotal: 133, stopsDone: 0, start: "13:00", eta: "18:15" },
+  { id: "R-077", zone: "North Ridge", driver: "T. Reyes", truck: "TRK-05", status: "completed", stopsTotal: 110, stopsDone: 110, start: "05:30", eta: "10:05" },
+  { id: "R-159", zone: "Elm District", driver: "C. Ibarra", truck: "TRK-14", status: "scheduled", stopsTotal: 147, stopsDone: 0, start: "13:00", eta: "18:40" },
+];
+
+const INITIAL_MISSED = [
+  { id: "M-2291", address: "418 Larkspur Ave", zone: "Harbor Flats", route: "R-092", reason: "Blocked by parked car", reported: "08:14", priority: "high", status: "open" },
+  { id: "M-2288", address: "22 Windmill Ct", zone: "North Ridge", route: "R-104", reason: "Bin not out", reported: "07:52", priority: "low", status: "open" },
+  { id: "M-2285", address: "907 Birchwood Ln", zone: "Elm District", route: "R-118", reason: "Truck mechanical delay", reported: "07:30", priority: "high", status: "open" },
+  { id: "M-2279", address: "63 Founders Row", zone: "Cedar Grove", route: "R-131", reason: "Overfilled bin, left partial", reported: "06:58", priority: "medium", status: "resolved" },
+];
+
+const TRUCKS = [
+  { id: "TRK-07", status: "active", fuel: 61, load: 78, burnRate: 4.2 },
+  { id: "TRK-12", status: "active", fuel: 44, load: 52, burnRate: 5.6 },
+  { id: "TRK-03", status: "active", fuel: 28, load: 91, burnRate: 6.7 },
+  { id: "TRK-19", status: "idle", fuel: 85, load: 12, burnRate: 0.4 },
+  { id: "TRK-22", status: "idle", fuel: 97, load: 0, burnRate: 0.3 },
+  { id: "TRK-05", status: "idle", fuel: 70, load: 8, burnRate: 0.5 },
+  { id: "TRK-14", status: "maintenance", fuel: 33, load: 0, burnRate: 0 },
+];
+
+const BURN_RATE_WARN = 5.5;
+
+// What's driving today's missed/delayed numbers, ranked by incident count
+const CAUSE_BREAKDOWN = [
+  { cause: "Access blocked (parked cars, gates)", count: 18, stopsAffected: 41 },
+  { cause: "Traffic / road closure", count: 11, stopsAffected: 33 },
+  { cause: "Bin not set out", count: 14, stopsAffected: 14 },
+  { cause: "Overfill / capacity exceeded", count: 9, stopsAffected: 22 },
+  { cause: "Fleet mechanical / breakdown", count: 6, stopsAffected: 58 },
+];
+
+// Trailing 7-day average completion per zone, used as the ranking baseline
+const ZONE_7D_AVG = {
+  "North Ridge": 78,
+  "Elm District": 34,
+  "Harbor Flats": 52,
+  "Cedar Grove": 91,
+  "Southgate": 3,
+};
+
+// Trailing 14-day performance, used by the trends section
+const TREND_DATA = [
+  { date: "Jul 15", completion: 88, missed: 22, onTime: 91 },
+  { date: "Jul 16", completion: 85, missed: 26, onTime: 88 },
+  { date: "Jul 17", completion: 90, missed: 19, onTime: 93 },
+  { date: "Jul 18", completion: 79, missed: 34, onTime: 82 },
+  { date: "Jul 19", completion: 83, missed: 29, onTime: 85 },
+  { date: "Jul 20", completion: 92, missed: 15, onTime: 94 },
+  { date: "Jul 21", completion: 94, missed: 12, onTime: 96 },
+  { date: "Jul 22", completion: 87, missed: 21, onTime: 89 },
+  { date: "Jul 23", completion: 81, missed: 31, onTime: 84 },
+  { date: "Jul 24", completion: 76, missed: 38, onTime: 79 },
+  { date: "Jul 25", completion: 84, missed: 27, onTime: 87 },
+  { date: "Jul 26", completion: 89, missed: 20, onTime: 90 },
+  { date: "Jul 27", completion: 91, missed: 17, onTime: 92 },
+  { date: "Jul 28", completion: 82, missed: 25, onTime: 86 },
+];
+
+const TREND_METRICS = {
+  completion: { label: "Completion rate", suffix: "%", color: "#8B5A3B", good: "up" },
+  missed: { label: "Missed pickups", suffix: "", color: "#B4402A", good: "down" },
+  onTime: { label: "On-time rate", suffix: "%", color: "#3F7A52", good: "up" },
+};
+
+// Core operational KPIs, 14-day trend, one row per day
+const CORE_KPI_DATA = [
+  { date: "Jul 15", stopsPerHour: 30, tonnesPerHour: 2.6, tripsPerRoute: 1.7, payloadUtilization: 78 },
+  { date: "Jul 16", stopsPerHour: 27, tonnesPerHour: 2.3, tripsPerRoute: 1.5, payloadUtilization: 71 },
+  { date: "Jul 17", stopsPerHour: 32, tonnesPerHour: 2.9, tripsPerRoute: 1.9, payloadUtilization: 83 },
+  { date: "Jul 18", stopsPerHour: 24, tonnesPerHour: 1.9, tripsPerRoute: 1.2, payloadUtilization: 63 },
+  { date: "Jul 19", stopsPerHour: 26, tonnesPerHour: 2.1, tripsPerRoute: 1.4, payloadUtilization: 68 },
+  { date: "Jul 20", stopsPerHour: 34, tonnesPerHour: 3.1, tripsPerRoute: 2.1, payloadUtilization: 89 },
+  { date: "Jul 21", stopsPerHour: 35, tonnesPerHour: 3.3, tripsPerRoute: 2.3, payloadUtilization: 93 },
+  { date: "Jul 22", stopsPerHour: 29, tonnesPerHour: 2.5, tripsPerRoute: 1.6, payloadUtilization: 76 },
+  { date: "Jul 23", stopsPerHour: 25, tonnesPerHour: 2.0, tripsPerRoute: 1.3, payloadUtilization: 65 },
+  { date: "Jul 24", stopsPerHour: 22, tonnesPerHour: 1.7, tripsPerRoute: 1.1, payloadUtilization: 58 },
+  { date: "Jul 25", stopsPerHour: 28, tonnesPerHour: 2.4, tripsPerRoute: 1.6, payloadUtilization: 73 },
+  { date: "Jul 26", stopsPerHour: 31, tonnesPerHour: 2.7, tripsPerRoute: 1.8, payloadUtilization: 80 },
+  { date: "Jul 27", stopsPerHour: 33, tonnesPerHour: 3.0, tripsPerRoute: 2.0, payloadUtilization: 87 },
+  { date: "Jul 28", stopsPerHour: 28, tonnesPerHour: 2.3, tripsPerRoute: 1.5, payloadUtilization: 72 },
+];
+
+const CORE_KPI_META = {
+  stopsPerHour: { label: "Stops per Hour", short: "Stops / hr", suffix: "", color: "#8B5A3B", icon: Gauge, target: 32 },
+  tonnesPerHour: { label: "Tonnes per Hour", short: "Tonnes / hr", suffix: "t", color: "#3F7A52", icon: Scale, target: 2.8 },
+  tripsPerRoute: { label: "Disposal Trips per Route", short: "Trips / route", suffix: "", color: "#96631B", icon: Repeat, target: 1.8 },
+  payloadUtilization: { label: "Payload Utilization", short: "Payload util.", suffix: "%", color: "#3E6B7A", icon: PackageCheck, target: 85 },
+};
+
+// Today's snapshot for each core KPI, broken out by region
+const CORE_KPI_BY_ZONE = {
+  stopsPerHour: { "North Ridge": 31, "Elm District": 22, "Harbor Flats": 26, "Cedar Grove": 35, "Southgate": 19 },
+  tonnesPerHour: { "North Ridge": 2.6, "Elm District": 1.8, "Harbor Flats": 2.2, "Cedar Grove": 3.1, "Southgate": 1.5 },
+  tripsPerRoute: { "North Ridge": 1.8, "Elm District": 1.2, "Harbor Flats": 1.5, "Cedar Grove": 2.1, "Southgate": 1.0 },
+  payloadUtilization: { "North Ridge": 81, "Elm District": 62, "Harbor Flats": 70, "Cedar Grove": 91, "Southgate": 55 },
+};
+
+const STATUS_STYLE = {
+  "in-progress": { label: "In progress", bg: "#EAF1EC", fg: "#3F7A52", dot: "#3F7A52" },
+  "completed": { label: "Completed", bg: "#EAF1EC", fg: "#2E5F3D", dot: "#2E5F3D" },
+  "delayed": { label: "Delayed", bg: "#FBEAE7", fg: "#B4402A", dot: "#B4402A" },
+  "scheduled": { label: "Scheduled", bg: "#F1EEE7", fg: "#7A7264", dot: "#7A7264" },
+};
+
+const PRIORITY_STYLE = {
+  high: { fg: "#B4402A", bg: "#FBEAE7", label: "High" },
+  medium: { fg: "#96631B", bg: "#F7EEDD", label: "Medium" },
+  low: { fg: "#5B6B60", bg: "#EEF0EC", label: "Low" },
+};
+
+function Split({ children, className = "" }) {
+  return (
+    <span className={`inline-block font-mono tabular-nums ${className}`}>{children}</span>
+  );
+}
+
+function StatusPill({ status }) {
+  const s = STATUS_STYLE[status];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-sm text-[11px] font-semibold tracking-wide uppercase"
+      style={{ background: s.bg, color: s.fg }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
+      {s.label}
+    </span>
+  );
+}
+
+function WasteOpsDashboard() {
+  const [routes, setRoutes] = useState(INITIAL_ROUTES);
+  const [missed, setMissed] = useState(INITIAL_MISSED);
+  const [expanded, setExpanded] = useState(null);
+  const [query, setQuery] = useState("");
+  const [zoneFilter, setZoneFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [now] = useState(() => new Date());
+  const [trendMetric, setTrendMetric] = useState("completion");
+
+  const trendStats = useMemo(() => {
+    const key = trendMetric;
+    const current = TREND_DATA[TREND_DATA.length - 1][key];
+    const weekAgo = TREND_DATA[TREND_DATA.length - 8][key];
+    const twoWeekAvg = Math.round(TREND_DATA.reduce((a, d) => a + d[key], 0) / TREND_DATA.length);
+    const delta = current - weekAgo;
+    const cfg = TREND_METRICS[key];
+    const improving = cfg.good === "up" ? delta > 0 : delta < 0;
+    return { current, weekAgo, twoWeekAvg, delta, improving: delta === 0 ? null : improving };
+  }, [trendMetric]);
+
+  const [coreKpi, setCoreKpi] = useState("stopsPerHour");
+
+  const coreKpiStats = useMemo(() => {
+    const key = coreKpi;
+    const data = CORE_KPI_DATA;
+    const round = (n) => Math.round(n * 10) / 10;
+    const current = data[data.length - 1][key];
+    const weekAgo = data[data.length - 8][key];
+    const twoWeekAvg = round(data.reduce((a, d) => a + d[key], 0) / data.length);
+    const delta = round(current - weekAgo);
+    const vsTarget = round(current - CORE_KPI_META[key].target);
+    return { current, weekAgo, twoWeekAvg, delta, vsTarget, improving: delta === 0 ? null : delta > 0 };
+  }, [coreKpi]);
+
+  const coreKpiZoneRows = useMemo(() => {
+    const rows = Object.entries(CORE_KPI_BY_ZONE[coreKpi]).map(([zone, value]) => ({ zone, value }));
+    const max = Math.max(...rows.map((r) => r.value));
+    return rows.sort((a, b) => b.value - a.value).map((r) => ({ ...r, pct: Math.round((r.value / max) * 100) }));
+  }, [coreKpi]);
+
+
+
+  const filteredRoutes = useMemo(() => {
+    return routes.filter((r) => {
+      const matchesQuery =
+        query.trim() === "" ||
+        r.id.toLowerCase().includes(query.toLowerCase()) ||
+        r.driver.toLowerCase().includes(query.toLowerCase()) ||
+        r.zone.toLowerCase().includes(query.toLowerCase());
+      const matchesZone = zoneFilter === "All" || r.zone === zoneFilter;
+      const matchesStatus = statusFilter === "All" || r.status === statusFilter;
+      return matchesQuery && matchesZone && matchesStatus;
+    });
+  }, [routes, query, zoneFilter, statusFilter]);
+
+  const kpis = useMemo(() => {
+    const total = routes.length;
+    const completed = routes.filter((r) => r.status === "completed").length;
+    const inProgress = routes.filter((r) => r.status === "in-progress").length;
+    const delayed = routes.filter((r) => r.status === "delayed").length;
+    const openMissed = missed.filter((m) => m.status === "open").length;
+    const totalStops = routes.reduce((a, r) => a + r.stopsTotal, 0);
+    const doneStops = routes.reduce((a, r) => a + r.stopsDone, 0);
+    return { total, completed, inProgress, delayed, openMissed, pct: Math.round((doneStops / totalStops) * 100) };
+  }, [routes, missed]);
+
+  const zoneCompletion = useMemo(() => {
+    return ZONES.map((zone) => {
+      const zr = routes.filter((r) => r.zone === zone);
+      const total = zr.reduce((a, r) => a + r.stopsTotal, 0);
+      const done = zr.reduce((a, r) => a + r.stopsDone, 0);
+      return { zone, pct: total ? Math.round((done / total) * 100) : 0, routeCount: zr.length };
+    });
+  }, [routes]);
+
+  const regionRanking = useMemo(() => {
+    const withScore = zoneCompletion.map((z) => {
+      const openMissedCount = missed.filter((m) => m.zone === z.zone && m.status === "open").length;
+      const avg = ZONE_7D_AVG[z.zone] ?? z.pct;
+      const delta = z.pct - avg;
+      const score = Math.max(0, Math.round(z.pct - openMissedCount * 6));
+      return { ...z, openMissedCount, avg, delta, score };
+    });
+    return withScore.sort((a, b) => b.score - a.score).map((z, i) => ({ ...z, rank: i + 1 }));
+  }, [zoneCompletion, missed]);
+
+  const totalCauseIncidents = useMemo(
+    () => CAUSE_BREAKDOWN.reduce((a, c) => a + c.count, 0),
+    []
+  );
+
+  function resolveMissed(id) {
+    setMissed((prev) => prev.map((m) => (m.id === id ? { ...m, status: "resolved" } : m)));
+  }
+
+  function requeueMissed(id) {
+    setMissed((prev) => prev.map((m) => (m.id === id ? { ...m, status: "resolved", reason: m.reason + " — requeued for redo" } : m)));
+  }
+
+  function advanceRoute(id) {
+    setRoutes((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const step = Math.max(1, Math.round(r.stopsTotal * 0.08));
+        const stopsDone = Math.min(r.stopsTotal, r.stopsDone + step);
+        const status = stopsDone === r.stopsTotal ? "completed" : r.status === "scheduled" ? "in-progress" : r.status;
+        return { ...r, stopsDone, status };
+      })
+    );
+  }
+
+  return (
+    <div className="min-h-screen w-full" style={{ background: "#EDEBE4", fontFamily: "'Inter', sans-serif" }}>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+      {/* Top bar */}
+      <header className="border-b" style={{ borderColor: "#D6D1C4", background: "#211712" }}>
+        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            <div
+              className="w-10 h-10 flex-shrink-0 rotate-45 flex items-center justify-center"
+              style={{ background: "#8B5A3B", border: "1.5px solid #E8D9C8" }}
+            >
+              <Leaf size={16} color="#FBFAF7" strokeWidth={2.25} className="-rotate-45" />
+            </div>
+            <div>
+              <h1
+                className="text-white text-lg leading-none tracking-wide uppercase"
+                style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, letterSpacing: "0.05em" }}
+              >
+                Miller Waste Systems
+              </h1>
+              <p className="text-[11px] mt-1.5 uppercase tracking-wide" style={{ color: "#B39A82", fontFamily: "'JetBrains Mono', monospace" }}>
+                Collection Ops Board · {now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} · Shift 1
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]" style={{ color: "#C7B6A4", fontFamily: "'JetBrains Mono', monospace" }}>
+            <Radio size={13} style={{ color: "#7DB88A" }} />
+            LIVE FEED CONNECTED
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1400px] mx-auto px-6 py-6">
+        {/* KPI strip */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+          <KpiCard label="Routes today" value={kpis.total} sub={`${kpis.completed} done`} />
+          <KpiCard label="In progress" value={kpis.inProgress} accent="#3F7A52" />
+          <KpiCard label="Delayed" value={kpis.delayed} accent="#B4402A" />
+          <KpiCard label="Open missed" value={kpis.openMissed} accent="#96631B" />
+          <KpiCard label="Trucks active" value={TRUCKS.filter((t) => t.status === "active").length} sub={`of ${TRUCKS.length}`} />
+          <KpiCard label="Stops complete" value={`${kpis.pct}%`} bar={kpis.pct} />
+        </div>
+
+        {/* Performance trends */}
+        <section className="rounded-sm border mb-5" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+          <div className="px-5 pt-5 pb-4 border-b flex flex-wrap items-center justify-between gap-3" style={{ borderColor: "#E4E0D5" }}>
+            <div>
+              <h2 className="text-sm uppercase tracking-wide" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                Performance Trends
+              </h2>
+              <p className="text-[11px] mt-1" style={{ color: "#9C9789" }}>14-day view, all zones combined</p>
+            </div>
+            <div className="flex gap-1.5">
+              {Object.entries(TREND_METRICS).map(([key, cfg]) => (
+                <button
+                  key={key}
+                  onClick={() => setTrendMetric(key)}
+                  className="px-3 py-1.5 rounded-sm text-[11px] font-semibold uppercase tracking-wide border transition-colors"
+                  style={
+                    trendMetric === key
+                      ? { background: "#1E2321", borderColor: "#1E2321", color: "#FBFAF7" }
+                      : { background: "transparent", borderColor: "#D6D1C4", color: "#5B564C" }
+                  }
+                >
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="px-5 pt-5 pb-2 grid grid-cols-3 gap-3 max-w-md">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>Today</div>
+              <Split className="text-xl font-semibold block mt-0.5" style={{ color: "#1E2321" }}>
+                {trendStats.current}{TREND_METRICS[trendMetric].suffix}
+              </Split>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>14-day avg</div>
+              <Split className="text-xl font-semibold block mt-0.5" style={{ color: "#5B564C" }}>
+                {trendStats.twoWeekAvg}{TREND_METRICS[trendMetric].suffix}
+              </Split>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>Vs. 7 days ago</div>
+              <div className="flex items-center gap-1 mt-0.5">
+                {trendStats.improving === null ? (
+                  <Minus size={14} style={{ color: "#9C9789" }} />
+                ) : trendStats.improving ? (
+                  <TrendingUp size={14} style={{ color: "#3F7A52" }} />
+                ) : (
+                  <TrendingDown size={14} style={{ color: "#B4402A" }} />
+                )}
+                <Split
+                  className="text-xl font-semibold"
+                  style={{ color: trendStats.improving === null ? "#9C9789" : trendStats.improving ? "#3F7A52" : "#B4402A" }}
+                >
+                  {trendStats.delta > 0 ? "+" : ""}{trendStats.delta}{TREND_METRICS[trendMetric].suffix}
+                </Split>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-3 pb-5 pt-2" style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={TREND_DATA} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="#E4E0D5" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11, fill: "#9C9789", fontFamily: "'JetBrains Mono', monospace" }}
+                  axisLine={{ stroke: "#D6D1C4" }}
+                  tickLine={false}
+                  interval={1}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#9C9789", fontFamily: "'JetBrains Mono', monospace" }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={32}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "#1E2321",
+                    border: "none",
+                    borderRadius: 2,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "#C7C2B4" }}
+                  itemStyle={{ color: TREND_METRICS[trendMetric].color }}
+                  formatter={(value) => [`${value}${TREND_METRICS[trendMetric].suffix}`, TREND_METRICS[trendMetric].label]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey={trendMetric}
+                  stroke={TREND_METRICS[trendMetric].color}
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: TREND_METRICS[trendMetric].color, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        {/* Core KPI explorer with side nav */}
+        <section className="rounded-sm border mb-5 overflow-hidden" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+          <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: "#E4E0D5" }}>
+            <h2 className="text-sm uppercase tracking-wide" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+              Core KPI Explorer
+            </h2>
+            <p className="text-[11px] mt-1" style={{ color: "#9C9789" }}>Operational efficiency metrics, 14-day trend</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[200px_1fr]">
+            {/* Side nav */}
+            <nav
+              className="flex md:flex-col overflow-x-auto md:overflow-visible border-b md:border-b-0 md:border-r"
+              style={{ borderColor: "#E4E0D5", background: "#F4F2EC" }}
+            >
+              {Object.entries(CORE_KPI_META).map(([key, meta]) => {
+                const Icon = meta.icon;
+                const active = coreKpi === key;
+                const todayVal = CORE_KPI_DATA[CORE_KPI_DATA.length - 1][key];
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setCoreKpi(key)}
+                    className="flex items-center gap-2.5 px-4 py-3.5 text-left flex-shrink-0 md:flex-shrink border-l-2 md:border-l-2 border-b md:border-b-0 transition-colors"
+                    style={{
+                      borderLeftColor: active ? meta.color : "transparent",
+                      borderBottomColor: "#E4E0D5",
+                      background: active ? "#FFFFFF" : "transparent",
+                    }}
+                  >
+                    <Icon size={16} style={{ color: active ? meta.color : "#9C9789" }} className="flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium whitespace-nowrap" style={{ color: active ? "#1E2321" : "#5B564C" }}>
+                        {meta.short}
+                      </div>
+                      <Split className="text-[11px]" style={{ color: "#9C9789" }}>
+                        {todayVal}{meta.suffix}
+                      </Split>
+                    </div>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Detail panel */}
+            <div className="p-5">
+              <div className="flex flex-wrap items-center gap-6 mb-4">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>Today</div>
+                  <Split className="text-xl font-semibold block mt-0.5" style={{ color: "#1E2321" }}>
+                    {coreKpiStats.current}{CORE_KPI_META[coreKpi].suffix}
+                  </Split>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>14-day avg</div>
+                  <Split className="text-xl font-semibold block mt-0.5" style={{ color: "#5B564C" }}>
+                    {coreKpiStats.twoWeekAvg}{CORE_KPI_META[coreKpi].suffix}
+                  </Split>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>Vs. target ({CORE_KPI_META[coreKpi].target}{CORE_KPI_META[coreKpi].suffix})</div>
+                  <Split
+                    className="text-xl font-semibold block mt-0.5"
+                    style={{ color: coreKpiStats.vsTarget >= 0 ? "#3F7A52" : "#B4402A" }}
+                  >
+                    {coreKpiStats.vsTarget > 0 ? "+" : ""}{coreKpiStats.vsTarget}{CORE_KPI_META[coreKpi].suffix}
+                  </Split>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide" style={{ color: "#9C9789" }}>Vs. 7 days ago</div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    {coreKpiStats.improving === null ? (
+                      <Minus size={14} style={{ color: "#9C9789" }} />
+                    ) : coreKpiStats.improving ? (
+                      <TrendingUp size={14} style={{ color: "#3F7A52" }} />
+                    ) : (
+                      <TrendingDown size={14} style={{ color: "#B4402A" }} />
+                    )}
+                    <Split
+                      className="text-xl font-semibold"
+                      style={{ color: coreKpiStats.improving === null ? "#9C9789" : coreKpiStats.improving ? "#3F7A52" : "#B4402A" }}
+                    >
+                      {coreKpiStats.delta > 0 ? "+" : ""}{coreKpiStats.delta}{CORE_KPI_META[coreKpi].suffix}
+                    </Split>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 190 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={CORE_KPI_DATA} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#E4E0D5" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11, fill: "#9C9789", fontFamily: "'JetBrains Mono', monospace" }}
+                      axisLine={{ stroke: "#D6D1C4" }}
+                      tickLine={false}
+                      interval={1}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "#9C9789", fontFamily: "'JetBrains Mono', monospace" }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={32}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#1E2321",
+                        border: "none",
+                        borderRadius: 2,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 12,
+                      }}
+                      labelStyle={{ color: "#C7C2B4" }}
+                      itemStyle={{ color: CORE_KPI_META[coreKpi].color }}
+                      formatter={(value) => [`${value}${CORE_KPI_META[coreKpi].suffix}`, CORE_KPI_META[coreKpi].label]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={coreKpi}
+                      stroke={CORE_KPI_META[coreKpi].color}
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: CORE_KPI_META[coreKpi].color, strokeWidth: 0 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="mt-5 pt-4 border-t" style={{ borderColor: "#E4E0D5" }}>
+                <div className="text-[11px] uppercase tracking-wide mb-3" style={{ color: "#9C9789" }}>
+                  Today by region
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  {coreKpiZoneRows.map((r) => (
+                    <div key={r.zone} className="flex items-center gap-3">
+                      <div className="w-28 flex-shrink-0 text-xs" style={{ color: "#3A3A34" }}>{r.zone}</div>
+                      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+                        <div className="h-full rounded-full" style={{ width: `${r.pct}%`, background: CORE_KPI_META[coreKpi].color }} />
+                      </div>
+                      <Split className="text-xs w-14 text-right flex-shrink-0" style={{ color: "#5B564C" }}>
+                        {r.value}{CORE_KPI_META[coreKpi].suffix}
+                      </Split>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* KPI drivers + region ranking */}
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_460px] gap-5 mb-5">
+          <section className="rounded-sm border" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+            <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: "#E4E0D5" }}>
+              <h2 className="text-sm uppercase tracking-wide" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                What's Driving Today's Numbers
+              </h2>
+              <p className="text-[11px] mt-1" style={{ color: "#9C9789" }}>
+                Root causes behind missed pickups and route delays, ranked by incident count
+              </p>
+            </div>
+            <div className="px-5 py-4 flex flex-col gap-3">
+              {CAUSE_BREAKDOWN.map((c) => {
+                const pctOfTotal = Math.round((c.count / totalCauseIncidents) * 100);
+                return (
+                  <div key={c.cause}>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-sm" style={{ color: "#1E2321" }}>{c.cause}</span>
+                      <span className="text-xs flex items-center gap-2 flex-shrink-0" style={{ color: "#7A7264" }}>
+                        <Split>{c.count} incidents</Split>
+                        <span style={{ color: "#C7C2B4" }}>·</span>
+                        <Split>{c.stopsAffected} stops</Split>
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+                      <div className="h-full rounded-full" style={{ width: `${pctOfTotal}%`, background: "#8B5A3B" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-sm border" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+            <div className="px-5 pt-5 pb-4 border-b flex items-center justify-between" style={{ borderColor: "#E4E0D5" }}>
+              <div>
+                <h2 className="text-sm uppercase tracking-wide flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                  <Trophy size={14} style={{ color: "#96631B" }} />
+                  Region Ranking
+                </h2>
+                <p className="text-[11px] mt-1" style={{ color: "#9C9789" }}>
+                  Score weighs completion against open missed pickups
+                </p>
+              </div>
+            </div>
+            <div className="divide-y" style={{ borderColor: "#E4E0D5" }}>
+              {regionRanking.map((z) => {
+                const trendUp = z.delta > 1;
+                const trendDown = z.delta < -1;
+                return (
+                  <div key={z.zone} className="px-5 py-3 flex items-center gap-3">
+                    {z.rank === 1 ? (
+                      <div
+                        className="w-6 h-6 flex-shrink-0 rotate-45 flex items-center justify-center"
+                        style={{ background: "#8B5A3B" }}
+                      >
+                        <span className="-rotate-45 text-[11px] font-mono font-semibold" style={{ color: "#FBFAF7" }}>1</span>
+                      </div>
+                    ) : (
+                      <div
+                        className="w-6 h-6 rounded-sm flex items-center justify-center text-[11px] font-mono font-semibold flex-shrink-0"
+                        style={{ background: z.rank <= 3 ? "#EDEBE4" : "#F1EEE7", color: "#7A7264" }}
+                      >
+                        {z.rank}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium" style={{ color: "#1E2321" }}>{z.zone}</div>
+                      <div className="text-[11px] mt-0.5" style={{ color: "#9C9789" }}>
+                        {z.routeCount} routes · {z.openMissedCount} open missed · vs 7d avg {z.avg}%
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 w-14 justify-end">
+                      {trendUp && <TrendingUp size={13} style={{ color: "#3F7A52" }} />}
+                      {trendDown && <TrendingDown size={13} style={{ color: "#B4402A" }} />}
+                      {!trendUp && !trendDown && <Minus size={13} style={{ color: "#9C9789" }} />}
+                      <Split
+                        className="text-xs font-semibold"
+                        style={{ color: trendUp ? "#3F7A52" : trendDown ? "#B4402A" : "#9C9789" }}
+                      >
+                        {z.pct}%
+                      </Split>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
+          {/* Left: routes */}
+          <section className="rounded-sm border" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+            <div className="px-5 pt-5 pb-4 border-b flex flex-wrap items-center gap-3" style={{ borderColor: "#E4E0D5" }}>
+              <h2 className="text-sm uppercase tracking-wide" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                Route Board
+              </h2>
+              <div className="flex-1 min-w-[160px] relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "#9C9789" }} />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search route, driver, zone..."
+                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded-sm border outline-none"
+                  style={{ borderColor: "#D6D1C4", background: "#FFFFFF" }}
+                />
+              </div>
+              <select
+                value={zoneFilter}
+                onChange={(e) => setZoneFilter(e.target.value)}
+                className="text-xs px-2 py-1.5 rounded-sm border outline-none"
+                style={{ borderColor: "#D6D1C4", background: "#FFFFFF", color: "#3A3A34" }}
+              >
+                <option>All</option>
+                {ZONES.map((z) => (
+                  <option key={z}>{z}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs px-2 py-1.5 rounded-sm border outline-none"
+                style={{ borderColor: "#D6D1C4", background: "#FFFFFF", color: "#3A3A34" }}
+              >
+                <option value="All">All statuses</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="in-progress">In progress</option>
+                <option value="delayed">Delayed</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            <div className="divide-y" style={{ borderColor: "#E4E0D5" }}>
+              {filteredRoutes.length === 0 && (
+                <div className="px-5 py-10 text-center text-sm" style={{ color: "#9C9789" }}>
+                  No routes match these filters.
+                </div>
+              )}
+              {filteredRoutes.map((r) => {
+                const isOpen = expanded === r.id;
+                const pct = Math.round((r.stopsDone / r.stopsTotal) * 100);
+                return (
+                  <div key={r.id}>
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : r.id)}
+                      className="w-full px-5 py-3.5 flex items-center gap-4 text-left hover:bg-black/[0.02] transition-colors"
+                    >
+                      {isOpen ? <ChevronDown size={15} style={{ color: "#9C9789" }} /> : <ChevronRight size={15} style={{ color: "#9C9789" }} />}
+                      <Split className="text-sm font-semibold w-16 flex-shrink-0" style={{ color: "#1E2321" }}>{r.id}</Split>
+                      <div className="w-40 flex-shrink-0 text-sm" style={{ color: "#3A3A34" }}>{r.zone}</div>
+                      <div className="w-32 flex-shrink-0 text-sm hidden sm:block" style={{ color: "#5B564C" }}>{r.driver}</div>
+                      <div className="w-20 flex-shrink-0 hidden md:block">
+                        <Split className="text-xs" style={{ color: "#7A7264" }}>{r.truck}</Split>
+                      </div>
+                      <div className="flex-1 min-w-[100px] hidden lg:flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: STATUS_STYLE[r.status].dot }} />
+                        </div>
+                        <Split className="text-[11px] w-16 text-right" style={{ color: "#7A7264" }}>{r.stopsDone}/{r.stopsTotal}</Split>
+                      </div>
+                      <div className="w-28 flex-shrink-0 flex justify-end">
+                        <StatusPill status={r.status} />
+                      </div>
+                    </button>
+                    {isOpen && (
+                      <div className="px-5 pb-4 pl-14 flex flex-wrap gap-x-8 gap-y-2 text-xs" style={{ color: "#5B564C" }}>
+                        <div><span style={{ color: "#9C9789" }}>Start </span><Split>{r.start}</Split></div>
+                        <div><span style={{ color: "#9C9789" }}>ETA complete </span><Split>{r.eta}</Split></div>
+                        <div><span style={{ color: "#9C9789" }}>Stops remaining </span><Split>{r.stopsTotal - r.stopsDone}</Split></div>
+                        <div className="ml-auto flex gap-2">
+                          <button
+                            onClick={() => advanceRoute(r.id)}
+                            disabled={r.status === "completed"}
+                            className="px-3 py-1.5 rounded-sm text-[11px] font-semibold uppercase tracking-wide disabled:opacity-40"
+                            style={{ background: "#1E2321", color: "#FBFAF7" }}
+                          >
+                            Log progress
+                          </button>
+                          <button
+                            className="px-3 py-1.5 rounded-sm text-[11px] font-semibold uppercase tracking-wide border"
+                            style={{ borderColor: "#D6D1C4", color: "#3A3A34" }}
+                          >
+                            Reassign driver
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Right: missed pickups + trucks */}
+          <div className="flex flex-col gap-5">
+            <section className="rounded-sm border" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+              <div className="px-5 pt-5 pb-3 border-b flex items-center justify-between" style={{ borderColor: "#E4E0D5" }}>
+                <h2 className="text-sm uppercase tracking-wide flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                  <AlertTriangle size={14} style={{ color: "#B4402A" }} />
+                  Missed Pickup Queue
+                </h2>
+                <span className="text-[11px] font-mono" style={{ color: "#9C9789" }}>{missed.filter(m=>m.status==="open").length} open</span>
+              </div>
+              <div className="divide-y" style={{ borderColor: "#E4E0D5" }}>
+                {missed.map((m) => (
+                  <div key={m.id} className="px-5 py-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium" style={{ color: "#1E2321" }}>{m.address}</div>
+                        <div className="text-xs mt-0.5" style={{ color: "#7A7264" }}>{m.zone} · route {m.route} · reported {m.reported}</div>
+                      </div>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded-sm font-semibold uppercase flex-shrink-0"
+                        style={{ background: PRIORITY_STYLE[m.priority].bg, color: PRIORITY_STYLE[m.priority].fg }}
+                      >
+                        {PRIORITY_STYLE[m.priority].label}
+                      </span>
+                    </div>
+                    <div className="text-xs mt-1.5" style={{ color: "#5B564C" }}>{m.reason}</div>
+                    {m.status === "open" ? (
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          onClick={() => requeueMissed(m.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-[11px] font-semibold uppercase tracking-wide"
+                          style={{ background: "#1E2321", color: "#FBFAF7" }}
+                        >
+                          <RotateCcw size={11} /> Requeue redo
+                        </button>
+                        <button
+                          onClick={() => resolveMissed(m.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-[11px] font-semibold uppercase tracking-wide border"
+                          style={{ borderColor: "#D6D1C4", color: "#3A3A34" }}
+                        >
+                          <CheckCircle2 size={11} /> Resolve
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-[11px] font-semibold uppercase tracking-wide border ml-auto"
+                          style={{ borderColor: "#D6D1C4", color: "#3A3A34" }}
+                        >
+                          <Phone size={11} /> Notify resident
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold uppercase" style={{ color: "#2E5F3D" }}>
+                        <CheckCircle2 size={12} /> Resolved
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-sm border" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+              <div className="px-5 pt-5 pb-3 border-b flex items-center justify-between" style={{ borderColor: "#E4E0D5" }}>
+                <h2 className="text-sm uppercase tracking-wide flex items-center gap-2" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 600, color: "#1E2321" }}>
+                  <Gauge size={14} style={{ color: "#5B564C" }} />
+                  Fleet Status
+                </h2>
+                {TRUCKS.filter((t) => t.burnRate >= BURN_RATE_WARN).length > 0 && (
+                  <span className="text-[11px] font-semibold flex items-center gap-1" style={{ color: "#B4402A" }}>
+                    <Flame size={12} />
+                    {TRUCKS.filter((t) => t.burnRate >= BURN_RATE_WARN).length} high burn
+                  </span>
+                )}
+              </div>
+              <div className="p-4 grid grid-cols-1 gap-2">
+                {TRUCKS.map((t) => {
+                  const highBurn = t.burnRate >= BURN_RATE_WARN;
+                  return (
+                    <div key={t.id} className="flex flex-col gap-2 px-3 py-2.5 rounded-sm" style={{ background: "#FFFFFF", border: "1px solid #E4E0D5" }}>
+                      <div className="flex items-center gap-3">
+                        <Split className="text-xs font-semibold w-16 flex-shrink-0" style={{ color: "#1E2321" }}>{t.id}</Split>
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-sm font-semibold uppercase w-24 text-center flex-shrink-0"
+                          style={{
+                            background: t.status === "active" ? "#EAF1EC" : t.status === "idle" ? "#F1EEE7" : "#FBEAE7",
+                            color: t.status === "active" ? "#3F7A52" : t.status === "idle" ? "#7A7264" : "#B4402A",
+                          }}
+                        >
+                          {t.status}
+                        </span>
+                        <div
+                          className="flex items-center gap-1 text-[11px] ml-auto flex-shrink-0"
+                          style={{ color: highBurn ? "#B4402A" : "#7A7264" }}
+                          title="Fuel burn rate"
+                        >
+                          <Flame size={11} />
+                          <Split>{t.burnRate}%/hr</Split>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 text-[11px] w-14 flex-shrink-0" style={{ color: "#9C9789" }}>
+                          <Fuel size={11} /> {t.fuel}%
+                        </div>
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+                          <div className="h-full rounded-full" style={{ width: `${t.fuel}%`, background: "#3F7A52" }} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] w-14 flex-shrink-0" style={{ color: "#9C9789" }}>Load {t.load}%</div>
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+                          <div className="h-full rounded-full" style={{ width: `${t.load}%`, background: "#8B5A3B" }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, sub, accent, bar }) {
+  return (
+    <div className="rounded-sm border px-4 py-3" style={{ borderColor: "#D6D1C4", background: "#FBFAF7" }}>
+      <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: "#9C9789", fontFamily: "'Oswald', sans-serif", fontWeight: 500 }}>
+        {label}
+      </div>
+      <div className="text-2xl font-mono font-semibold" style={{ color: accent || "#1E2321" }}>
+        {value}
+      </div>
+      {sub && <div className="text-[11px] mt-0.5" style={{ color: "#9C9789" }}>{sub}</div>}
+      {typeof bar === "number" && (
+        <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "#E4E0D5" }}>
+          <div className="h-full rounded-full" style={{ width: `${bar}%`, background: "#8B5A3B" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<WasteOpsDashboard />);
+
+</script>
+</body>
+</html>
